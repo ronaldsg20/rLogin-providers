@@ -7,10 +7,12 @@ import { PersonalSignParams, SignParams, EthSendTransactionParams } from '@rsksm
 import { RLoginEIP1193ProviderOptions, RLoginEIP1193Provider } from '@rsksmart/rlogin-eip1193-proxy-subprovider'
 import { createTransaction } from '@rsksmart/rlogin-transactions'
 import { getDPathByChainId } from '@rsksmart/rlogin-dpath'
+import { remove0x } from '@rsksmart/rsk-utils'
 
 type LedgerProviderOptions = RLoginEIP1193ProviderOptions & {
   debug?: boolean
   dPath?: string
+  messageHashed?: boolean
 }
 
 export class LedgerProvider extends RLoginEIP1193Provider {
@@ -23,8 +25,12 @@ export class LedgerProvider extends RLoginEIP1193Provider {
 
   private debug: boolean
 
-  constructor ({ chainId, rpcUrl, dPath, debug }: LedgerProviderOptions) {
+  public messageHashed: boolean
+
+  constructor ({ chainId, rpcUrl, dPath, debug, messageHashed }: LedgerProviderOptions) {
     super({ rpcUrl, chainId })
+
+    this.messageHashed = !!messageHashed
 
     this.debug = !!debug
 
@@ -130,7 +136,11 @@ export class LedgerProvider extends RLoginEIP1193Provider {
   }
 
   personalSign (params: PersonalSignParams): Promise<string> {
-    return this.validateConnectionAndPersonalSign(params[0])
+    if (this.messageHashed) {
+      return this.validateConnectionAndPersonalSignHashed(params[0])
+    } else {
+      return this.validateConnectionAndPersonalSign(params[0])
+    }
   }
 
   async disconnect () {
@@ -140,5 +150,17 @@ export class LedgerProvider extends RLoginEIP1193Provider {
     this.appEthConnected = false
 
     this.appEth = null
+  }
+
+  private async validateConnectionAndPersonalSignHashed (messageHash: string): Promise<string> {
+    this.#validateIsConnected()
+    const message = remove0x(messageHash)
+    const result = await this.appEth.signPersonalMessage(this.dpath, message)
+    const v = result.v - 27
+    let v2 = v.toString(16)
+    if (v2.length < 2) {
+      v2 = '0' + v
+    }
+    return `0x${result.r}${result.s}${v2}`
   }
 }
